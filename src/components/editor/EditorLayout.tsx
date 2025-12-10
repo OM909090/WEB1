@@ -1,32 +1,39 @@
 import { useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useImageEditor } from '@/hooks/useImageEditor';
 import { Toolbar } from './Toolbar';
 import { AdjustmentPanel } from './AdjustmentPanel';
 import { FilterPanel } from './FilterPanel';
 import { Canvas } from './Canvas';
 import { AIAssistant } from './AIAssistant';
+import { ExportSettings } from './ExportSettings';
 import { ChatMessage, ImageAdjustments } from '@/types/editor';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Sliders, Wand2, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { Sliders, Wand2, PanelRightOpen, PanelRightClose, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { processAIEditCommand } from '@/lib/ai-edit';
 
-export function EditorLayout() {
+interface EditorLayoutProps {
+  mode?: 'image' | 'video';
+}
+
+export function EditorLayout({ mode = 'image' }: EditorLayoutProps) {
   const editor = useImageEditor();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isAILoading, setIsAILoading] = useState(false);
   const [isAIPanelOpen, setIsAIPanelOpen] = useState(true);
 
-  const handleExport = async () => {
+  const handleExport = async (settings?: { quality: string; format: string; resolution: string }) => {
     const dataUrl = await editor.exportImage();
     if (dataUrl) {
+      const format = settings?.format || 'png';
       const link = document.createElement('a');
-      link.download = 'edited-image.png';
+      link.download = `edited-image.${format}`;
       link.href = dataUrl;
       link.click();
-      toast.success('Image exported successfully!');
+      toast.success(`Image exported as ${format.toUpperCase()}!`);
     }
   };
 
@@ -107,32 +114,42 @@ export function EditorLayout() {
     <div className="flex flex-col h-screen bg-background overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="absolute inset-0 bg-primary/30 rounded-lg blur-lg" />
-            <div className="relative w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-              <Wand2 className="w-5 h-5 text-primary-foreground" />
+        <div className="flex items-center gap-4">
+          <Link to="/">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          </Link>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="absolute inset-0 bg-primary/30 rounded-lg blur-lg" />
+              <div className="relative w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                <Wand2 className="w-5 h-5 text-primary-foreground" />
+              </div>
             </div>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold gradient-text">PixelForge AI</h1>
-            <p className="text-xs text-muted-foreground">Intelligent Media Editor</p>
+            <div>
+              <h1 className="text-xl font-bold gradient-text">Image Editor</h1>
+              <p className="text-xs text-muted-foreground">PixelForge AI</p>
+            </div>
           </div>
         </div>
         
-        <Toolbar
-          canUndo={editor.canUndo}
-          canRedo={editor.canRedo}
-          zoom={editor.state.zoom}
-          onUndo={editor.undo}
-          onRedo={editor.redo}
-          onReset={editor.reset}
-          onExport={handleExport}
-          onZoomIn={() => editor.setZoom(editor.state.zoom + 0.1)}
-          onZoomOut={() => editor.setZoom(editor.state.zoom - 0.1)}
-          onRotate={() => editor.setRotation(editor.state.rotation + 90)}
-          onFitToScreen={() => editor.setZoom(1)}
-        />
+        <div className="flex items-center gap-3">
+          <Toolbar
+            canUndo={editor.canUndo}
+            canRedo={editor.canRedo}
+            zoom={editor.state.zoom}
+            onUndo={editor.undo}
+            onRedo={editor.redo}
+            onReset={editor.reset}
+            onExport={() => {}}
+            onZoomIn={() => editor.setZoom(editor.state.zoom + 0.1)}
+            onZoomOut={() => editor.setZoom(editor.state.zoom - 0.1)}
+            onRotate={() => editor.setRotation(editor.state.rotation + 90)}
+            onFitToScreen={() => editor.setZoom(1)}
+          />
+          <ExportSettings onExport={handleExport} type="image" />
+        </div>
 
         <Button
           variant="ghost"

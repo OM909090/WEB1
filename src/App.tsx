@@ -4,7 +4,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
-import Index from "./pages/Index";
+import Landing from "./pages/Landing";
+import ImageEditor from "./pages/ImageEditor";
+import VideoEditor from "./pages/VideoEditor";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -17,7 +19,9 @@ const App = () => (
         <Sonner position="bottom-right" theme="dark" />
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Index />} />
+            <Route path="/" element={<Landing />} />
+            <Route path="/editor/image" element={<ImageEditor />} />
+            <Route path="/editor/video" element={<VideoEditor />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

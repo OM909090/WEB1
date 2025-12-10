@@ -26,6 +26,7 @@ interface GeneratedShort {
   score: number;
   tags: string[];
   status: 'ready' | 'processing' | 'pending';
+  path?: string; // Optional path to the video file
 }
 
 interface ShortsShowcaseProps {
@@ -116,109 +117,103 @@ export function ShortsShowcase({
   }
 
   return (
-    <div className="h-full flex flex-col p-4">
+    <div className="h-full flex flex-col p-4 bg-gradient-to-b from-background to-secondary/20">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-border/50">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-primary" />
-          <h3 className="font-semibold">AI Generated Shorts</h3>
-          <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
-            {shorts.length} clips
-          </span>
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Sparkles className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-lg">AI Generated Shorts</h3>
+            <p className="text-xs text-muted-foreground">
+              {shorts.length} high-quality clips ready
+            </p>
+          </div>
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={onRegenerateShorts}
-          className="gap-1"
+          className="gap-2 hover:bg-primary/10"
         >
-          <RefreshCw className="w-3 h-3" />
+          <RefreshCw className="w-3.5 h-3.5" />
           Regenerate
         </Button>
       </div>
 
-      {/* Shorts Grid */}
+      {/* Shorts Grid - Responsive */}
       <div className="flex-1 overflow-hidden">
-        <div className="relative h-full">
-          {/* Navigation Arrows */}
-          {shorts.length > 4 && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-background/80 backdrop-blur-sm"
-                onClick={scrollLeft}
-                disabled={selectedIndex === 0}
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-background/80 backdrop-blur-sm"
-                onClick={scrollRight}
-                disabled={selectedIndex >= shorts.length - 4}
-              >
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </>
-          )}
-
-          {/* Shorts Cards */}
-          <div
-            className="flex gap-4 h-full transition-transform duration-300 px-8"
-            style={{ transform: `translateX(-${selectedIndex * 220}px)` }}
-          >
+        <div className="h-full overflow-x-auto overflow-y-hidden">
+          <div className="flex gap-4 h-full pb-2 min-w-max">
             {shorts.map((short, index) => (
               <div
                 key={short.id}
                 className={cn(
-                  "flex-shrink-0 w-52 h-full rounded-xl overflow-hidden border transition-all duration-200 cursor-pointer group",
+                  "flex-shrink-0 w-64 h-full rounded-xl overflow-hidden border-2 transition-all duration-300 cursor-pointer group bg-card shadow-lg",
                   hoveredIndex === index
-                    ? "border-primary shadow-lg shadow-primary/20 scale-105"
-                    : "border-border hover:border-primary/50"
+                    ? "border-primary shadow-xl shadow-primary/30 scale-[1.02] -translate-y-1"
+                    : "border-border/50 hover:border-primary/50 hover:shadow-xl"
                 )}
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
                 onClick={() => onSelectShort(short)}
               >
                 {/* Thumbnail */}
-                <div className="relative h-3/5 bg-gradient-to-br from-secondary to-secondary/50">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-12 h-12 rounded-full bg-primary/20 backdrop-blur-sm flex items-center justify-center group-hover:bg-primary/30 transition-colors">
-                      <Play className="w-5 h-5 text-primary fill-primary" />
+                <div className="relative h-3/5 bg-gradient-to-br from-primary/5 via-secondary/30 to-primary/10 overflow-hidden">
+                  {/* Video thumbnail if path exists */}
+                  {short.path && (
+                    <video
+                      src={short.path}
+                      className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity"
+                      muted
+                      preload="metadata"
+                    />
+                  )}
+                  
+                  {/* Play overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/60 via-transparent to-transparent group-hover:from-black/40">
+                    <div className="w-14 h-14 rounded-full bg-primary/90 backdrop-blur-sm flex items-center justify-center group-hover:bg-primary group-hover:scale-110 transition-all shadow-lg">
+                      <Play className="w-6 h-6 text-primary-foreground fill-primary-foreground ml-0.5" />
                     </div>
                   </div>
                   
                   {/* Duration Badge */}
-                  <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md bg-black/70 text-xs">
-                    <Clock className="w-3 h-3" />
-                    {formatDuration(short.duration)}
+                  <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/80 backdrop-blur-sm text-xs font-medium border border-white/10">
+                    <Clock className="w-3.5 h-3.5 text-white" />
+                    <span className="text-white">{formatDuration(short.duration)}</span>
                   </div>
 
                   {/* Score Badge */}
-                  <div className="absolute top-2 right-2 px-2 py-1 rounded-md bg-primary/90 text-xs font-medium text-primary-foreground">
-                    {short.score}% match
+                  <div className="absolute top-3 right-3 px-2.5 py-1.5 rounded-lg bg-primary text-xs font-bold text-primary-foreground shadow-lg">
+                    {short.score}%
+                  </div>
+
+                  {/* Clip Number */}
+                  <div className="absolute top-3 left-3 w-8 h-8 rounded-full bg-black/80 backdrop-blur-sm flex items-center justify-center text-xs font-bold text-white border border-white/10">
+                    {index + 1}
                   </div>
 
                   {/* Status */}
                   {short.status === 'processing' && (
-                    <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    <div className="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-primary" />
                     </div>
                   )}
                 </div>
 
                 {/* Info */}
-                <div className="h-2/5 p-3 bg-card flex flex-col">
-                  <h4 className="font-medium text-sm line-clamp-2 mb-2">{short.title}</h4>
+                <div className="h-2/5 p-4 bg-gradient-to-b from-card to-card/80 flex flex-col border-t border-border/50">
+                  <h4 className="font-semibold text-sm line-clamp-2 mb-2 group-hover:text-primary transition-colors">
+                    {short.title}
+                  </h4>
                   
                   {/* Tags */}
-                  <div className="flex flex-wrap gap-1 mb-auto">
+                  <div className="flex flex-wrap gap-1.5 mb-auto">
                     {short.tags.slice(0, 2).map((tag) => (
                       <span
                         key={tag}
-                        className="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground"
+                        className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary font-medium"
                       >
                         {tag}
                       </span>
@@ -226,29 +221,29 @@ export function ShortsShowcase({
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 mt-2">
+                  <div className="flex items-center gap-2 mt-3">
                     <Button
-                      variant="ghost"
+                      variant="default"
                       size="sm"
-                      className="flex-1 h-7 text-xs gap-1"
+                      className="flex-1 h-8 text-xs gap-1.5 font-medium"
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectShort(short);
                       }}
                     >
-                      <Eye className="w-3 h-3" />
-                      Preview
+                      <Play className="w-3.5 h-3.5" />
+                      Play
                     </Button>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className="flex-1 h-7 text-xs gap-1"
+                      className="flex-1 h-8 text-xs gap-1.5 font-medium"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDownload(short);
                       }}
                     >
-                      <Download className="w-3 h-3" />
+                      <Download className="w-3.5 h-3.5" />
                       Export
                     </Button>
                   </div>
@@ -259,19 +254,12 @@ export function ShortsShowcase({
         </div>
       </div>
 
-      {/* Pagination Dots */}
-      {shorts.length > 4 && (
-        <div className="flex justify-center gap-1.5 mt-4">
-          {Array.from({ length: Math.ceil(shorts.length / 4) }).map((_, i) => (
-            <button
-              key={i}
-              className={cn(
-                "w-2 h-2 rounded-full transition-colors",
-                Math.floor(selectedIndex / 4) === i ? "bg-primary" : "bg-secondary"
-              )}
-              onClick={() => setSelectedIndex(i * 4)}
-            />
-          ))}
+      {/* Scroll Indicator */}
+      {shorts.length > 3 && (
+        <div className="flex justify-center items-center gap-2 mt-3 pt-3 border-t border-border/50">
+          <div className="text-xs text-muted-foreground">
+            Scroll to see more clips →
+          </div>
         </div>
       )}
     </div>

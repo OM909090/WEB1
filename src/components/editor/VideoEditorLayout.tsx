@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -125,9 +125,15 @@ export function VideoEditorLayout() {
   const [isGeneratingShorts, setIsGeneratingShorts] = useState(false);
   const [generatedShorts, setGeneratedShorts] = useState<GeneratedShort[]>([]);
   const [importSource, setImportSource] = useState<'local' | 'youtube' | null>(null);
+  const [showVideoControls, setShowVideoControls] = useState(true);
+  const [controlsTimeout, setControlsTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
+  // Default demo video URL (using a sample video)
+  const defaultDemoVideo = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
   
   const [videoState, setVideoState] = useState<VideoState>({
-    src: null,
+    src: defaultDemoVideo, // Start with demo video
     duration: 0,
     currentTime: 0,
     isPlaying: false,
@@ -164,6 +170,21 @@ export function VideoEditorLayout() {
       normalize: false,
     },
   });
+
+  // Autoplay demo video on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (videoRef.current && videoState.src === defaultDemoVideo) {
+        videoRef.current.play().catch(() => {
+          // Autoplay might be blocked by browser, that's okay
+          console.log('Autoplay was prevented');
+        });
+        setVideoState((prev) => ({ ...prev, isPlaying: true }));
+      }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -207,88 +228,153 @@ export function VideoEditorLayout() {
     }, 2000);
   };
 
-  const generateShorts = () => {
+  const generateShorts = async () => {
+    if (!youtubeUrl.trim()) {
+      toast.error('Please enter a YouTube URL first');
+      return;
+    }
+
     setIsGeneratingShorts(true);
     
-    // Simulate AI shorts generation
-    setTimeout(() => {
-      const mockShorts: GeneratedShort[] = [
-        {
-          id: '1',
-          title: 'Epic Intro Scene',
-          thumbnailTime: 5,
-          startTime: 0,
-          endTime: 15,
-          duration: 15,
-          score: 95,
-          tags: ['viral', 'hook'],
-          status: 'ready',
+    // Start polling for progress updates
+    let progressToastId: string | number | undefined;
+    const pollProgress = async () => {
+      try {
+        const progressResponse = await fetch('http://localhost:5000/progress', {
+          signal: AbortSignal.timeout(5000), // 5 second timeout
+        });
+        
+        if (!progressResponse.ok) {
+          console.error('Progress endpoint returned error:', progressResponse.status);
+          return;
+        }
+        
+        const progress = await progressResponse.json();
+        
+        // Update toast with current progress
+        if (progress.status === 'downloading') {
+          if (!progressToastId) {
+            progressToastId = toast.loading(progress.message, {
+              description: `${progress.progress}% complete`
+            });
+          } else {
+            toast.loading(progress.message, {
+              id: progressToastId,
+              description: `${progress.progress}% complete`
+            });
+          }
+        } else if (progress.status === 'processing') {
+          toast.loading(progress.message, {
+            id: progressToastId,
+            description: progress.total_clips > 0 
+              ? `Clip ${progress.current_clip}/${progress.total_clips} - ${progress.progress}% complete`
+              : `${progress.progress}% complete`
+          });
+        }
+        
+        // Continue polling if not complete or error
+        if (progress.status !== 'complete' && progress.status !== 'error' && progress.status !== 'idle') {
+          setTimeout(pollProgress, 1000); // Poll every second
+        }
+      } catch (error) {
+        console.error('Error polling progress:', error);
+        // Don't show error to user, just stop polling
+      }
+    };
+    
+    // Start progress polling
+    setTimeout(pollProgress, 500);
+
+    try {
+      // Check if backend is accessible
+      try {
+        await fetch('http://localhost:5000/progress');
+      } catch (error) {
+        throw new Error('Backend server is not running. Please start the Python server on port 5000.');
+      }
+
+      const response = await fetch('http://localhost:5000/generate_shorts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        {
-          id: '2',
-          title: 'Key Highlight Moment',
-          thumbnailTime: 45,
-          startTime: 40,
-          endTime: 58,
-          duration: 18,
-          score: 88,
-          tags: ['highlight', 'action'],
-          status: 'ready',
-        },
-        {
-          id: '3',
-          title: 'Emotional Peak',
-          thumbnailTime: 120,
-          startTime: 115,
-          endTime: 135,
-          duration: 20,
-          score: 92,
-          tags: ['emotional', 'trending'],
-          status: 'ready',
-        },
-        {
-          id: '4',
-          title: 'Surprise Twist',
-          thumbnailTime: 200,
-          startTime: 195,
-          endTime: 215,
-          duration: 20,
-          score: 85,
-          tags: ['twist', 'cliffhanger'],
-          status: 'ready',
-        },
-        {
-          id: '5',
-          title: 'Perfect Ending',
-          thumbnailTime: 280,
-          startTime: 275,
-          endTime: 295,
-          duration: 20,
-          score: 90,
-          tags: ['ending', 'satisfying'],
-          status: 'ready',
-        },
-        {
-          id: '6',
-          title: 'Funny Moment',
-          thumbnailTime: 150,
-          startTime: 145,
-          endTime: 160,
-          duration: 15,
-          score: 82,
-          tags: ['comedy', 'shareable'],
-          status: 'ready',
-        },
-      ];
+        body: JSON.stringify({
+          url: youtubeUrl,
+          output_dir: 'all_30sec_shorts'
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error (${response.status}): ${errorText}`);
+      }
+
+      const report = await response.json();
+
+      if (report.error) {
+        throw new Error(report.error);
+      }
+
+      // Convert the report clips to GeneratedShort format
+      const shorts: GeneratedShort[] = report.clip_details.map((clip: any, index: number) => ({
+        id: clip.clip_number.toString(),
+        title: `Clip ${clip.clip_number}: ${Math.floor(clip.start_time)}s - ${Math.floor(clip.end_time)}s`,
+        thumbnailTime: clip.start_time,
+        startTime: clip.start_time,
+        endTime: clip.end_time,
+        duration: clip.duration,
+        score: Math.floor(80 + Math.random() * 20), // Random score for demo
+        tags: ['auto-generated', 'short'],
+        status: 'ready' as const,
+        path: `http://localhost:5000/${clip.filename}`, // Serve from Flask server
+      }));
+
+      setGeneratedShorts(shorts);
       
-      setGeneratedShorts(mockShorts);
+      // Dismiss loading toast and show success
+      if (progressToastId) {
+        toast.dismiss(progressToastId);
+      }
+      toast.success(`Generated ${shorts.length} shorts from YouTube video!`);
+
+    } catch (error) {
+      console.error('Error generating shorts:', error);
+      if (progressToastId) {
+        toast.dismiss(progressToastId);
+      }
+      toast.error(`Failed to generate shorts: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
       setIsGeneratingShorts(false);
-      toast.success(`Generated ${mockShorts.length} potential shorts!`);
-    }, 3000);
+    }
   };
 
   const handleSelectShort = (short: GeneratedShort) => {
-    if (videoRef.current) {
+    // If the short has its own video file path, load and play it
+    if (short.path) {
+      setVideoState((prev) => ({
+        ...prev,
+        src: short.path,
+        currentTime: 0,
+        isPlaying: false,
+        trimStart: 0,
+        trimEnd: 100,
+      }));
+      
+      // Wait for video to load then play
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.load();
+          videoRef.current.play().catch(err => {
+            console.error('Error playing video:', err);
+            toast.error('Failed to play video');
+          });
+          setVideoState((prev) => ({ ...prev, isPlaying: true }));
+        }
+      }, 100);
+      
+      toast.success(`Playing: ${short.title}`);
+    } else if (videoRef.current) {
+      // Fallback to seeking in the original video
       videoRef.current.currentTime = short.startTime;
       setVideoState((prev) => ({
         ...prev,
@@ -296,6 +382,8 @@ export function VideoEditorLayout() {
         trimEnd: (short.endTime / prev.duration) * 100,
         currentTime: short.startTime,
       }));
+      videoRef.current.play();
+      setVideoState((prev) => ({ ...prev, isPlaying: true }));
       toast.success(`Selected: ${short.title}`);
     }
   };
@@ -309,6 +397,43 @@ export function VideoEditorLayout() {
       }
       setVideoState((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
     }
+  };
+
+  // Handle video container mouse events for controls
+  const handleVideoMouseEnter = () => {
+    setShowVideoControls(true);
+    if (controlsTimeout) {
+      clearTimeout(controlsTimeout);
+      setControlsTimeout(null);
+    }
+  };
+
+  const handleVideoMouseLeave = () => {
+    const timeout = setTimeout(() => {
+      setShowVideoControls(false);
+    }, 2000); // Fade out after 2 seconds
+    setControlsTimeout(timeout);
+  };
+
+  const handleVideoMouseMove = () => {
+    setShowVideoControls(true);
+    if (controlsTimeout) {
+      clearTimeout(controlsTimeout);
+    }
+    const timeout = setTimeout(() => {
+      setShowVideoControls(false);
+    }, 3000);
+    setControlsTimeout(timeout);
+  };
+
+  // Click on video to play/pause
+  const handleVideoClick = () => {
+    togglePlay();
+  };
+
+  // Toggle fullscreen mode
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
   };
 
   const handleTimeUpdate = () => {
@@ -942,60 +1067,110 @@ export function VideoEditorLayout() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col">
-          {/* Video Preview - Top Half */}
-          <div className="h-1/2 p-4 flex items-center justify-center bg-black/50 relative overflow-hidden">
+        <main className="flex-1 flex flex-col bg-gradient-to-br from-background via-secondary/5 to-background">
+          {/* Video Preview - Responsive height based on fullscreen */}
+          <div className={cn(
+            "p-6 flex items-center justify-center bg-gradient-to-br from-black/80 via-black/60 to-black/80 relative overflow-hidden border-b-2 border-primary/20 transition-all duration-300",
+            isFullscreen ? "h-full" : "h-1/2 mb-4"
+          )}>
+            {/* Decorative background elements */}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(var(--primary-rgb,120,119,198),0.1),transparent_50%)]" />
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+            
             {videoState.src ? (
-              <video
-                ref={videoRef}
-                src={videoState.src}
-                className="max-h-full max-w-full rounded-lg transition-transform"
-                style={{ 
-                  filter: getVideoFilters(),
-                  transform: getVideoTransform(),
-                }}
-                onTimeUpdate={handleTimeUpdate}
-                onLoadedMetadata={handleLoadedMetadata}
-                onEnded={() => setVideoState((prev) => ({ ...prev, isPlaying: false }))}
-              />
-            ) : (
-              <div className="text-center">
-                <div className="w-20 h-20 rounded-full bg-secondary/50 flex items-center justify-center mx-auto mb-4">
-                  <Upload className="w-8 h-8 text-muted-foreground" />
+              <div 
+                className="relative max-h-full max-w-full cursor-pointer group"
+                onMouseEnter={handleVideoMouseEnter}
+                onMouseLeave={handleVideoMouseLeave}
+                onMouseMove={handleVideoMouseMove}
+                onClick={handleVideoClick}
+              >
+                <video
+                  ref={videoRef}
+                  src={videoState.src}
+                  className="max-h-full max-w-full rounded-xl shadow-2xl shadow-primary/20 border border-primary/20 transition-transform"
+                  style={{ 
+                    filter: getVideoFilters(),
+                    transform: getVideoTransform(),
+                  }}
+                  onTimeUpdate={handleTimeUpdate}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onEnded={() => setVideoState((prev) => ({ ...prev, isPlaying: false }))}
+                  muted={videoState.isMuted}
+                />
+                
+                {/* Video overlay info - always visible */}
+                <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-black/60 backdrop-blur-md border border-white/10">
+                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-xs font-medium text-white">LIVE PREVIEW</span>
                 </div>
-                <h3 className="text-lg font-medium mb-2">No video loaded</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Upload a video or paste a YouTube link
+
+                {/* Play/Pause overlay - shows when paused */}
+                {!videoState.isPlaying && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-20 h-20 rounded-full bg-primary/90 backdrop-blur-sm flex items-center justify-center shadow-2xl border-4 border-white/20 group-hover:scale-110 transition-transform">
+                      <Play className="w-10 h-10 text-white fill-white ml-1" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center relative z-10">
+                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center mx-auto mb-6 border border-primary/20 shadow-lg">
+                  <Upload className="w-10 h-10 text-primary" />
+                </div>
+                <h3 className="text-2xl font-bold mb-2 bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                  Professional Video Editor
+                </h3>
+                <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
+                  Import your video to start editing with AI-powered tools and effects
                 </p>
-                <div className="flex gap-2 justify-center">
-                  <Button onClick={() => fileInputRef.current?.click()}>
-                    <Upload className="w-4 h-4 mr-2" />
-                    Upload
+                <div className="flex gap-3 justify-center">
+                  <Button 
+                    size="lg"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="gap-2 shadow-lg"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Upload Video
                   </Button>
-                  <Button variant="outline" onClick={() => document.getElementById('yt-input')?.focus()}>
-                    <Youtube className="w-4 h-4 mr-2" />
-                    YouTube
+                  <Button 
+                    size="lg"
+                    variant="outline" 
+                    onClick={() => document.getElementById('yt-input')?.focus()}
+                    className="gap-2 border-primary/30 hover:bg-primary/10"
+                  >
+                    <Youtube className="w-4 h-4" />
+                    Import from YouTube
                   </Button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Shorts Showcase - Bottom Half */}
-          <div className="h-1/2 border-t border-border bg-card/30">
-            <ShortsShowcase
-              isGenerating={isGeneratingShorts}
-              shorts={generatedShorts}
-              onSelectShort={handleSelectShort}
-              onRegenerateShorts={generateShorts}
-              videoSrc={importSource === 'youtube' ? videoState.src : null}
-            />
-          </div>
+          {/* Shorts Showcase - Bottom Half - Hidden in fullscreen */}
+          {!isFullscreen && (
+            <div className="h-1/2 border-t-2 border-primary/20 bg-gradient-to-b from-card/50 to-secondary/30 backdrop-blur-sm">
+              <ShortsShowcase
+                isGenerating={isGeneratingShorts}
+                shorts={generatedShorts}
+                onSelectShort={handleSelectShort}
+                onRegenerateShorts={generateShorts}
+                videoSrc={importSource === 'youtube' ? videoState.src : null}
+              />
+            </div>
+          )}
 
           {/* Timeline & Controls - Floating */}
           {videoState.src && (
-            <div className="absolute bottom-1/2 left-80 right-80 mx-4 translate-y-1/2 p-3 border border-border bg-card/90 backdrop-blur-sm rounded-lg">
-              <div className="mb-2">
+            <div 
+              className={cn(
+                "absolute left-80 right-80 mx-4 p-4 border-2 border-primary/20 bg-gradient-to-br from-card/95 to-card/90 backdrop-blur-md rounded-xl shadow-2xl shadow-primary/10 transition-all duration-300",
+                showVideoControls ? "opacity-100" : "opacity-0 pointer-events-none",
+                isFullscreen ? "bottom-8" : "bottom-1/2 translate-y-1/2"
+              )}
+            >
+             <div className="mb-3">
                 <Slider
                   value={[videoState.currentTime]}
                   min={0}
@@ -1004,18 +1179,18 @@ export function VideoEditorLayout() {
                   onValueChange={handleSeek}
                   className="cursor-pointer"
                 />
-                <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                  <span>{formatTime(videoState.currentTime)}</span>
-                  <span>{formatTime(videoState.duration)}</span>
+                <div className="flex justify-between text-xs text-muted-foreground mt-1.5">
+                  <span className="tabular-nums">{formatTime(videoState.currentTime)}</span>
+                  <span className="tabular-nums">{formatTime(videoState.duration)}</span>
                 </div>
               </div>
 
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleSeek([0])}>
                     <SkipBack className="w-4 h-4" />
                   </Button>
-                  <Button size="icon" className="h-8 w-8" onClick={togglePlay}>
+                  <Button size="icon" className="h-9 w-9" onClick={togglePlay}>
                     {videoState.isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                   </Button>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleSeek([videoState.duration])}>
@@ -1023,20 +1198,37 @@ export function VideoEditorLayout() {
                   </Button>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleMute}>
-                    {videoState.isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                  </Button>
-                  <Slider
-                    value={[videoState.isMuted ? 0 : videoState.volume]}
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    onValueChange={handleVolumeChange}
-                    className="w-20"
-                  />
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <Maximize2 className="w-4 h-4" />
+                <div className="flex items-center gap-3">
+                  {/* Volume Control */}
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleMute}>
+                      {videoState.isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    </Button>
+                    <Slider
+                      value={[videoState.isMuted ? 0 : videoState.volume]}
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      onValueChange={handleVolumeChange}
+                      className="w-20"
+                    />
+                  </div>
+
+                  {/* Fullscreen Button */}
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8" 
+                    onClick={toggleFullscreen}
+                    title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                  >
+                    {isFullscreen ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
                   </Button>
                 </div>
               </div>
@@ -1120,3 +1312,9 @@ export function VideoEditorLayout() {
     </div>
   );
 }
+             
+        
+
+          
+
+             
